@@ -9,7 +9,8 @@ find_package (Threads)
 set(CMAKE_MODULE_PATH "." ${CMAKE_MODULE_PATH})
 find_package(SFML 2 REQUIRED system window graphics audio)
 
-add_library(chip8cpu chip8cpu.cpp)
+add_library(chip8cpu SHARED chip8cpu.cpp)
+add_library(chip8SFML SHARED chip8SFML.cpp)
 add_executable(Chip8pp main.cpp)
-target_link_libraries (Chip8pp chip8cpu ${CMAKE_THREAD_LIBS_INIT} ${SFML_LIBRARIES})
+target_link_libraries (Chip8pp chip8cpu chip8SFML ${CMAKE_THREAD_LIBS_INIT} ${SFML_LIBRARIES})
 

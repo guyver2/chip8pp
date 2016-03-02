@@ -23,9 +23,6 @@ Chip8cpu::Chip8cpu(): _mem(vector<uint8_t>(0xFFF, 0)),
                       _SP(0),
                       _stack(vector<uint16_t>()),
                       _screen(vector<uint8_t>(_S_WIDTH*_S_HEIGHT, 0)),
-                      _cpuThread(NULL),
-                      _timeNext(chrono::system_clock::now()),
-                      _loop(false),
                       _opCodeMasks(vector<opCodeMask>())
 {
 	initOpCodeMasks();
@@ -35,10 +32,7 @@ Chip8cpu::Chip8cpu(): _mem(vector<uint8_t>(0xFFF, 0)),
 // destructor
 Chip8cpu::~Chip8cpu()
 {
-	if (_cpuThread != NULL) 
-	{
-		delete _cpuThread;
-	}
+
 }
 
 // load a rom from a buffer 
@@ -69,59 +63,31 @@ int Chip8cpu::loadRom(const string filename)
 		return 0;
 	}
 }
-
-
-// main emulation loop
-void Chip8cpu::cpuLoop()
+// access a screen pixel
+uint8_t Chip8cpu::getPix(int i)
 {
-	// count the number of loop per second
-	chrono::system_clock::time_point t0 = chrono::system_clock::now();
-	uint cpt = 0;
-	
-	// infinite loop
-	while(_loop)
-	{
-		// updateKeyboard();
-		uint16_t ins = readInstruction();
-		int insID = decodeInstruction(ins);
-		if (insID < 0) break;
-		else
-		{
-			executeInstruction(insID, ins);
-		}
-		updateTimers();	
-		//display();	
-		_PC += 2;
-		
-		// set the point in time for the begining of next loop
-		_timeNext += std::chrono::nanoseconds(16666667);
-		this_thread::sleep_until( _timeNext );
+	return _screen[i];
+}
 
-		// display the number of loop during the last second
-		cpt++;
-		chrono::system_clock::time_point t1 = chrono::system_clock::now();
-		if ((t1-t0) > std::chrono::seconds(1))
-		{
-			cout << cpt << "/sec" << endl;
-			t0 = t1;
-			cpt = 0;
-		}
+// execute one full cpu step
+int Chip8cpu::step()
+{
+	// updateKeyboard();
+	uint16_t ins = readInstruction();
+	int insID = decodeInstruction(ins);
+	if (insID < 0){
+		cerr << "error while decoding instruction : 0x" 
+		     << std::hex << setw(4) << ins << std::dec << endl;
+		return -1;
 	}
+	else{
+		executeInstruction(insID, ins);
+	}
+	updateTimers();	
+	_PC += 2;
+	return 0;
 }
 
-// start emulation
-void Chip8cpu::start()
-{
-	srand(time(0)); // use current time as seed for random generator
-	_loop = true;
-	_timeNext = chrono::system_clock::now();
-	_cpuThread = new thread(&Chip8cpu::cpuLoop, this);
-}
-
-void Chip8cpu::wait()
-{
-	_cpuThread->join();
-}
 
 // update delay and sound timers, also play sound when needed
 void Chip8cpu::updateTimers()

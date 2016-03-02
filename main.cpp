@@ -1,5 +1,5 @@
 #include <iostream>
-#include "chip8cpu.h"
+#include "chip8SFML.h"
 
 
 using namespace std;
@@ -16,9 +16,9 @@ int main(int argc, char** argv)
 		romFilename = string(argv[1]);
 	}
 	
-	Chip8cpu cpu = Chip8cpu();
-	cout << "rom size: " << cpu.loadRom(romFilename) << endl;
-	cpu.start();
-	cpu.wait();
+	Chip8SFML chip = Chip8SFML();
+	cout << "rom size: " << chip.loadRom(romFilename) << endl;
+	chip.start();
+	chip.wait();
 	return 0;
 }
