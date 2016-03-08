@@ -4,3 +4,5 @@ Chip8pp
 Makefile
 cmake_install.cmake
 libchip8cpu.a
+*.so
+*.o
