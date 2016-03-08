@@ -87,7 +87,7 @@ void Chip8cpu::setKey(uint k, bool val)
 int Chip8cpu::step()
 {
 	if (_waitKey) {
-		cout << "waiting for a key..." << endl;
+		//cout << "waiting for a key..." << endl;
 		for (int i=0; i<16; i++) {
 			if (_keyboard[i]){
 				_reg[_waitKeyReg] = i;
