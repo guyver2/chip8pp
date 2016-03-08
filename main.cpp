@@ -17,7 +17,7 @@ int main(int argc, char** argv)
 	}
 	
 	Chip8SFML chip = Chip8SFML();
-	cout << "rom size: " << chip.loadRom(romFilename) << endl;
+	/*cout << "rom size: " << */chip.loadRom(romFilename);// << endl;
 	chip.start();
 	chip.wait();
 	return 0;

@@ -4,6 +4,7 @@
 #include <thread>
 #include <chrono>
 #include <SFML/Graphics.hpp>
+#include <SFML/Window/Keyboard.hpp>
 
 
 #include "chip8SFML.h"
@@ -18,10 +19,12 @@ Chip8SFML::Chip8SFML(): _cpu(Chip8cpu()),
                         _window(NULL),
 						_cpuThread(NULL),
                         _timeNext(chrono::system_clock::now()),
-                        _loop(false)
+                        _loop(false),
+                        _keyboard(vector<key>())
 {
 	_window = new sf::RenderWindow(sf::VideoMode(640, 320), "Chip8 Emulator");
 	_window->setActive(false);
+	initKeyboard();
 }
 
 
@@ -32,7 +35,43 @@ Chip8SFML::~Chip8SFML()
 	{
 		delete _cpuThread;
 	}
+	if (_window != NULL) 
+	{
+		delete _window;
+	}
 }
+
+// init keyboard mapping 
+void Chip8SFML::initKeyboard()
+{
+	_keyboard.push_back({false, sf::Keyboard::Numpad0});
+	_keyboard.push_back({false, sf::Keyboard::Numpad7});
+	_keyboard.push_back({false, sf::Keyboard::Numpad8});
+	_keyboard.push_back({false, sf::Keyboard::Numpad9});
+	_keyboard.push_back({false, sf::Keyboard::Numpad4});
+	_keyboard.push_back({false, sf::Keyboard::Numpad5});
+	_keyboard.push_back({false, sf::Keyboard::Numpad6});
+	_keyboard.push_back({false, sf::Keyboard::Numpad1});
+	_keyboard.push_back({false, sf::Keyboard::Numpad2});
+	_keyboard.push_back({false, sf::Keyboard::Numpad3});
+	_keyboard.push_back({false, sf::Keyboard::A});
+	_keyboard.push_back({false, sf::Keyboard::S});
+	_keyboard.push_back({false, sf::Keyboard::D});
+	_keyboard.push_back({false, sf::Keyboard::Z});
+	_keyboard.push_back({false, sf::Keyboard::X});
+	_keyboard.push_back({false, sf::Keyboard::C});
+}
+
+
+// update keyboard and send values to the cpu
+void Chip8SFML::updateKeyboard()
+{
+	for(int i=0; i < _keyboard.size(); i++){
+		_keyboard[i].pressed = sf::Keyboard::isKeyPressed(_keyboard[i].code);
+		_cpu.setKey(i, _keyboard[i].pressed);
+	}
+}
+
 
 
 // load a rom file
@@ -60,6 +99,34 @@ void Chip8SFML::draw()
 
 }
 
+// capture closing event
+void Chip8SFML::processCloseEvent()
+{
+	sf::Event event;
+	while (_window->pollEvent(event))
+	{
+		switch (event.type)
+		{
+		    // closed window
+		    case sf::Event::Closed:
+		        _loop = false;
+		        break;
+		    // escape pressed
+		    case sf::Event::KeyPressed:
+		        if (event.key.code == sf::Keyboard::Escape){
+		        	_loop = false;
+		        }    
+		        break;
+		    // everything else is done in updateKeyboard
+		    default:
+		        break;
+		}
+	}
+}
+
+
+
+
 // main loop
 void Chip8SFML::loop()
 {
@@ -70,10 +137,12 @@ void Chip8SFML::loop()
 	// infinite loop
 	while(_loop)
 	{
-		_cpu.step();
+		processCloseEvent();
+		updateKeyboard();
+		_loop = (_loop && !_cpu.step());
 		draw();		
 		// set the point in time for the begining of next loop
-		_timeNext += std::chrono::nanoseconds(16666667);
+		_timeNext += std::chrono::nanoseconds((int)(1e9/_cpu._IPS));
 		this_thread::sleep_until( _timeNext );
 
 		// display the number of loop during the last second
@@ -86,6 +155,7 @@ void Chip8SFML::loop()
 			cpt = 0;
 		}
 	}
+	_window->close();
 }
 
 
