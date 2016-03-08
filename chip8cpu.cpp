@@ -21,11 +21,15 @@ Chip8cpu::Chip8cpu(): _mem(vector<uint8_t>(0xFFF, 0)),
                       _regSound(0),
                       _PC(0x200),
                       _SP(0),
-                      _stack(vector<uint16_t>()),
+                      _stack(vector<uint16_t>(16,0)),
                       _screen(vector<uint8_t>(_S_WIDTH*_S_HEIGHT, 0)),
-                      _opCodeMasks(vector<opCodeMask>())
+                      _opCodeMasks(vector<opCodeMask>()), 
+                      _keyboard(vector<bool>(16, false)),
+                      _waitKey(false),
+                      _waitKeyReg(0)                      
 {
 	initOpCodeMasks();
+	loadFont();
 }
 
 
@@ -63,28 +67,49 @@ int Chip8cpu::loadRom(const string filename)
 		return 0;
 	}
 }
+
+
 // access a screen pixel
 uint8_t Chip8cpu::getPix(int i)
 {
 	return _screen[i];
 }
 
+
+// set a key from the keyboard
+void Chip8cpu::setKey(uint k, bool val)
+{
+	_keyboard[k] = val;
+}
+
+
 // execute one full cpu step
 int Chip8cpu::step()
 {
-	// updateKeyboard();
-	uint16_t ins = readInstruction();
-	int insID = decodeInstruction(ins);
-	if (insID < 0){
-		cerr << "error while decoding instruction : 0x" 
-		     << std::hex << setw(4) << ins << std::dec << endl;
-		return -1;
+	if (_waitKey) {
+		cout << "waiting for a key..." << endl;
+		for (int i=0; i<16; i++) {
+			if (_keyboard[i]){
+				_reg[_waitKeyReg] = i;
+				_waitKey = false;
+				break;
+			}
+		}
 	}
-	else{
-		executeInstruction(insID, ins);
+	if (!_waitKey) {
+		uint16_t ins = readInstruction();
+		int insID = decodeInstruction(ins);
+		if (insID < 0){
+			cerr << _PC << " error while decoding instruction : 0x" 
+				 << std::hex << setw(4) << setfill('0')<< ins << std::dec << endl;
+			return -1;
+		}
+		else{
+			executeInstruction(insID, ins);
+		}
+		updateTimers();	
+		_PC += 2;
 	}
-	updateTimers();	
-	_PC += 2;
 	return 0;
 }
 
@@ -123,9 +148,6 @@ int Chip8cpu::decodeInstruction(uint16_t ins)
 	}
 	if (found) 
 	{
-		cout << "instruction : " << i << " (" 
-		     << std::showbase << std::internal << std::setfill('0')
-		     << std::hex << std::setw(6) << ins << ")" << std::dec << endl;
 		return i;
 	}
 	else
@@ -133,6 +155,23 @@ int Chip8cpu::decodeInstruction(uint16_t ins)
 		return -1;
 	}
 }
+
+// print full stack, debug fct
+void Chip8cpu::printStack()
+{
+	cout << "[";
+	for(int i=0; i<_stack.size()-1; i++) cout << _stack[i] << " ";
+	cout << _stack[_stack.size()-1] << "]" << endl;
+}
+
+// print registers status, debug fct
+void Chip8cpu::printReg()
+{
+	cout << "[ ";
+	for(int i=0; i<_reg.size()-1; i++) cout << (uint)_reg[i] << " ";
+	cout << (uint)_reg[_reg.size()-1] << "]" << endl;
+}
+
 
 // execute an instruction based on it's ID
 bool Chip8cpu::executeInstruction(int insID, uint16_t ins)
@@ -142,10 +181,13 @@ bool Chip8cpu::executeInstruction(int insID, uint16_t ins)
 	uint8_t N = ins & 0x000F;
 	bool success = true;
 	int tmp;
+	//cout << _PC << " " << "0x" << hex << uppercase << setw(4) << setfill('0') << ins << dec << nouppercase << " " << insID << endl; 
+	//printReg();
 	switch(insID) 
 	{
 		case 0: // 0NNN
-			cerr << "instruction 0NNN should not happen !" << endl;
+			// device specific, pass
+			//cerr << "instruction 0NNN should not happen !" << endl;
 			break;
 		
 		case 1: // 00E0 clear screen
@@ -153,38 +195,45 @@ bool Chip8cpu::executeInstruction(int insID, uint16_t ins)
 			break;
 		
 		case 2: // 00EE return from subroutine
-			_PC = _stack[_SP];
-			_PC -= 2;
-			_SP -= 1;
-			if (_SP < 0){
+			if (_SP < 1){
 				cerr << "ERROR : stack underflow" << endl;
 				success = false;
+				break;
 			}
+			_PC = _stack[_SP-1];
+			_SP -= 1;
+			//cout << "return from subroutine SP =" << (uint)_SP << endl;
+			//printStack();
 			break;
 		
 		case 3: // 1NNN jump to address NNN
-			_PC = ((uint16_t)X<<8) | (Y<<4) | N;
+			_PC = ((uint16_t)X<<8) + (Y<<4) + N;
 			_PC -= 2;
 			break;
 		
 		case 4: // 2NNN call subroutine
-			_stack[_SP] = _PC;
-			_SP += 1;
-			_PC = ((uint16_t)X<<8) | (Y<<4) | N;
-			if (_SP >= 16){
+			if (_SP >= 15){
 				cerr << "ERROR : stack overflow" << endl;
 				success = false;
+				break;
 			}
+			_stack[_SP] = _PC;
+			_SP += 1;
+			_PC = ((uint16_t)X<<8) + (Y<<4) + N;
+			_PC -= 2;
+			//cout << "0x" << hex << setw(4) << ins << dec << " "; 
+			//cout << "call subroutine SP =" << (uint)_SP << endl;
+			//printStack();
 			break;
 			
 		case 5: // 3XNN Skip next instruction if Vx = NN
-			if (_reg[X] == ((Y<<4) | N) ){
+			if (_reg[X] == ((Y<<4) + N) ){
 				_PC += 2;
 			}
 			break;
 		
 		case 6: // 4XNN Skip next instruction if Vx != NN
-			if (_reg[X] != ((Y<<4) | N) ){
+			if (_reg[X] != ((Y<<4) + N) ){
 				_PC += 2;
 			}
 			break;
@@ -196,11 +245,11 @@ bool Chip8cpu::executeInstruction(int insID, uint16_t ins)
 			break;
 			
 		case 8: // 6xNN Set Vx = NN
-			_reg[X] = (Y<<4) | N;
+			_reg[X] = (Y<<4) + N;
 			break;
 			
 		case 9: // 7xNN Vx = Vx + kk.
-			_reg[X] += (Y<<4) | N;
+			_reg[X] += (Y<<4) + N;
 			break;
 
 		case 10: //	8xy0 Set Vx = Vy
@@ -222,14 +271,14 @@ bool Chip8cpu::executeInstruction(int insID, uint16_t ins)
 		case 14: // 8xy4 Set Vx = Vx + Vy, set VF = carry
 			tmp = (uint16_t)_reg[X] + (uint16_t)_reg[Y];
 			_reg[X] = tmp % 256;
-			if (tmp < 255) _reg[15] = 1;
+			if (tmp > 255) _reg[15] = 1;
 			else           _reg[15] = 0;
 			break;
 		
 		case 15: // 8xy5 Set Vx = Vx - Vy, set VF = NOT borrow
 			tmp = int(_reg[X]) - _reg[Y];
-			if (tmp >= 0) _reg[15] = 1;
-			else          _reg[15] = 0;
+			if (tmp < 0) _reg[15] = 0;
+			else         _reg[15] = 1;
 			_reg[X] = tmp % 256;
 			break;
 			
@@ -240,8 +289,8 @@ bool Chip8cpu::executeInstruction(int insID, uint16_t ins)
 			
 		case 17: // 8xy7 Set Vx = Vy - Vx, set VF = NOT borrow.
 			tmp = int(_reg[Y]) - _reg[X];
-			if (tmp >= 0) _reg[15] = 1;
-			else          _reg[15] = 0;
+			if (tmp < 0) _reg[15] = 0;
+			else         _reg[15] = 1;
 			_reg[X] = tmp % 256;
 			break;
 		
@@ -257,11 +306,11 @@ bool Chip8cpu::executeInstruction(int insID, uint16_t ins)
 			break;
 			
 		case 20: // Annn Set I = nnn.
-			_I = ((uint16_t)X<<8) | (Y<<4) | N;
+			_I = ((uint16_t)X<<8) + (Y<<4) + N;
 			break;
 		
 		case 21: // Bnnn Jump to location nnn + V0
-			_PC = (((uint16_t)X<<8) | (Y<<4) | N) + _reg[0];
+			_PC = (((uint16_t)X<<8) + (Y<<4) + N) + _reg[0];
 			_PC -= 2;
 			break;
 		
@@ -289,8 +338,66 @@ bool Chip8cpu::executeInstruction(int insID, uint16_t ins)
 				}
 			}
 			break;
-			
+		
+		case 24: // Ex9E Skip next instruction if key with the value of Vx is pressed.
+			if (_keyboard[_reg[X]]){
+				_PC += 2;
+			}
+			break;
 
+		case 25: // Ex9E Skip next instruction if key with the value of Vx is pressed.
+			if (! _keyboard[_reg[X]]){
+				_PC += 2;
+			}
+			break;
+		
+		case 26: // Fx07 Set Vx = delay timer value.
+			_reg[X] = _regDelay;
+			break;
+		
+		case 27: // Fx0A Wait for a key press, store the value of the key in Vx.
+			_waitKey = true;
+			_waitKeyReg = X;
+			break;
+		
+		case 28:
+			_regDelay = _reg[X];
+			break;
+		
+		case 29: // Fx18 Set sound timer = Vx.
+			_regSound = _reg[X];
+			break;
+			
+		case 30: // Fx1E Set I = I + Vx.
+			tmp = (uint16_t)_I + _reg[X];
+			_I = tmp % 0xFFF;
+			if (tmp > 0xFFF){
+				_reg[15] = 1;
+			}
+			break;
+		
+		case 31: // Fx29 Set I = location of sprite for digit Vx.
+			_I = _reg[X]*5;
+			break;
+
+		case 32: // Fx33 Store BCD representation of Vx in memory locations I, I+1, and I+2.
+			_mem[_I] = _reg[X] / 100;
+			_mem[_I+1] = (_reg[X] / 10) % 10;
+			_mem[_I+2] = _reg[X] % 10;
+			break;
+		
+		case 33: // Fx55 Store registers V0 through Vx in memory starting at location I.
+			for (int i=0; i<X+1; i++){
+				_mem[_I+i] = _reg[i];
+			}
+			break;
+		
+		case 34: // Fx65 Read registers V0 through Vx from memory starting at location I.
+			for (int i=0; i<X+1; i++){
+				_reg[i] = _mem[_I+i];
+			}
+			break;
+			
 			
 		default :
 			cout << "instruction " << insID << " not implemented yet" << endl;
@@ -303,7 +410,7 @@ bool Chip8cpu::executeInstruction(int insID, uint16_t ins)
 
 
 void Chip8cpu::initOpCodeMasks(){
-	_opCodeMasks.push_back({0xF000, 0x0000}); // 0NNN -- 0
+	_opCodeMasks.push_back({0x0000, 0x0FFF}); // 0NNN -- 0
 	_opCodeMasks.push_back({0xFFFF, 0x00E0}); // 00E0
 	_opCodeMasks.push_back({0xFFFF, 0x00EE}); // 00E0
 	_opCodeMasks.push_back({0xF000, 0x1000}); // 1NNN
@@ -340,6 +447,41 @@ void Chip8cpu::initOpCodeMasks(){
 	_opCodeMasks.push_back({0xF0FF, 0xF065}); // FX65 -- 34
 }
 
+void Chip8cpu::loadFont()
+{
+    _mem[0]=0xF0;_mem[1]=0x90;_mem[2]=0x90;_mem[3]=0x90; _mem[4]=0xF0; // O
+
+    _mem[5]=0x20;_mem[6]=0x60;_mem[7]=0x20;_mem[8]=0x20;_mem[9]=0x70; // 1
+
+    _mem[10]=0xF0;_mem[11]=0x10;_mem[12]=0xF0;_mem[13]=0x80; _mem[14]=0xF0; // 2
+
+    _mem[15]=0xF0;_mem[16]=0x10;_mem[17]=0xF0;_mem[18]=0x10;_mem[19]=0xF0; // 3
+
+    _mem[20]=0x90;_mem[21]=0x90;_mem[22]=0xF0;_mem[23]=0x10;_mem[24]=0x10; // 4
+
+    _mem[25]=0xF0;_mem[26]=0x80;_mem[27]=0xF0;_mem[28]=0x10;_mem[29]=0xF0; // 5
+
+    _mem[30]=0xF0;_mem[31]=0x80;_mem[32]=0xF0;_mem[33]=0x90;_mem[34]=0xF0; // 6
+
+    _mem[35]=0xF0;_mem[36]=0x10;_mem[37]=0x20;_mem[38]=0x40;_mem[39]=0x40; // 7
+
+    _mem[40]=0xF0;_mem[41]=0x90;_mem[42]=0xF0;_mem[43]=0x90;_mem[44]=0xF0; // 8
+
+    _mem[45]=0xF0;_mem[46]=0x90;_mem[47]=0xF0;_mem[48]=0x10;_mem[49]=0xF0; // 9
+
+    _mem[50]=0xF0;_mem[51]=0x90;_mem[52]=0xF0;_mem[53]=0x90;_mem[54]=0x90; // A
+
+    _mem[55]=0xE0;_mem[56]=0x90;_mem[57]=0xE0;_mem[58]=0x90;_mem[59]=0xE0; // B
+
+    _mem[60]=0xF0;_mem[61]=0x80;_mem[62]=0x80;_mem[63]=0x80;_mem[64]=0xF0; // C
+
+    _mem[65]=0xE0;_mem[66]=0x90;_mem[67]=0x90;_mem[68]=0x90;_mem[69]=0xE0; // D
+
+    _mem[70]=0xF0;_mem[71]=0x80;_mem[72]=0xF0;_mem[73]=0x80;_mem[74]=0xF0; // E
+
+    _mem[75]=0xF0;_mem[76]=0x80;_mem[77]=0xF0;_mem[78]=0x80;_mem[79]=0x80; // F
+
+}
 
 
 
