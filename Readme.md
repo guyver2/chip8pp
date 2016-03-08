@@ -13,7 +13,7 @@
 
 # Abstract:  
 
-- Compile:
+- Compile:  
 	`cmake . && make`
 - Quick launch:  
 	`./chip8pp roms/MAZE`  
